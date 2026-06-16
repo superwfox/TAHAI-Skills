@@ -39,7 +39,7 @@
    写死"有人发『签到』就发 100 金币"=坏（那是当次需求该生成的，绑死了适用性）。
 3. **可直接照抄。**
    给**确定的库坐标**（`groupId:artifactId:version`）和**可粘贴的骨架代码**，
-   让普通模型"照着抄就对"。只给抽象描述、不给样板，等于没帮上忙。
+   让低端模型"照着抄就对"。只给抽象描述、不给样板，等于没帮上忙。
 4. **明确边界与提问点。**
    部署相关（连接地址 / 端口 / token）、用户偏好（要不要开某配置）一律写明
    **"必须暴露到 config 并提示用户填写 / 必须显式提问"**，**不替用户拍板、不硬编码**。
@@ -53,69 +53,90 @@
 
 ## 3. 仓库结构
 
-`master` 分支下，**一个 skill = 一个顶层文件夹**。文件夹内按用途分**一级**子目录，分两类：
+`master` 分支下，**一个 skill = 一个顶层文件夹**（文件夹名 = skill id）。文件夹内按用途分
+**自取名的一级语义子目录**（`api/`、`handler/`、`protocol/`…，名字随能力自定），子目录里直接放 md。
 
-- **生成型目录 `functions/`** — 每个 md → Planner 规划出的**一个待生成文件**，必须标 `fileGen`（见 §6）。
-- **能力/资料型目录**（`api/`、`protocol/`、`itemList/`、`outlook/` …自取名）— 注入给模型当
-  **参考上下文**（库用法、协议说明、报文模板、外观清单等），**不一一对应生成文件**，不强制 `fileGen`。
+> **关键：`gen` / `ref` 是每个「文件」的属性（写在 frontmatter 的 `kind`），不是目录的属性。**
+> 同一个子目录里 gen 和 ref 可以共存——例如下面 `api/` 里既有三个 ref「报文片段」，
+> 又有一个把它们聚合落盘的 gen 工具类。**不要**按 gen/ref 去切目录，按业务语义切。
+
+下面是随本 README 附带的范本 skill `qqbot-onebot/`（对接 QQ bot）的真实结构：
 
 ```
-TAHAI-Skills/
-├─ README.md
-├─ qqbot-onebot/                 ← 能力型 skill（推荐范式）
-│  ├─ brief.json
-│  ├─ protocol/
-│  │  └─ websocket.md            ← ref：用哪个 ws 库、怎么建连/心跳/重连
-│  ├─ api/
-│  │  ├─ send-message.md         ← ref：发群/私聊消息的 OneBot 报文模板
-│  │  └─ receive-message.md      ← ref：接收消息事件的解析模板
-│  └─ functions/
-│     ├─ BotConfig.md            ← gen：ws 地址/端口/token 配置类
-│     └─ BotConnection.md        ← gen：维护 ws 长连接的服务单例
-└─ chest-ui-beautify/            ← 美化箱子 UI（多资料目录示例）
-   ├─ brief.json
-   ├─ itemList/ …                ← ref：可用装饰物品清单
-   ├─ outlook/ …                 ← ref：版式/配色约定
-   └─ functions/ …               ← gen：GUI 持有类 + 点击监听
+qqbot-onebot/
+├─ brief.json
+├─ protocol/
+│  └─ websocket.md            ← gen(ManagerGen)：OneBotClient 正向长连接 + 自动重连
+├─ api/
+│  ├─ sendGroupMsg.md         ← ref：send_group_msg 报文片段（sendG 方法体）
+│  ├─ sendPrivateMsg.md       ← ref：send_private_msg 报文片段（sendP 方法体）
+│  ├─ sendGroupAt.md          ← ref：at 消息段片段（sendGroupAt 方法体）
+│  └─ OneBotApi.md            ← gen(UtilGen)：聚合上面三个 ref，落盘成 OneBotApi 工具类
+└─ handler/
+   ├─ privateMsgHandler.md    ← gen(UtilGen)：私聊指令路由，回复走 OneBotApi.sendP
+   ├─ groupMsgHandler.md      ← gen(UtilGen)：群聊指令路由，回复走 OneBotApi.sendG/sendGroupAt
+   └─ JsonParser.md           ← gen(UtilGen)：上行 JSON 解析 + 按 message_type 派发到两个 Handler
 ```
 
 约定：
 
-- 文件夹名 = skill 唯一 id，**kebab-case**，全库唯一。
+- 文件夹名 = skill 唯一 id，**kebab-case**，与 `brief.json.id` 一致，全库唯一。
 - `brief.json` 必须位于 skill 根目录。
-- **目录最多一层，不要文件夹再套文件夹。** 文件多时分几个一级目录即可，每个目录内直接放文件。
+- **目录最多一层，不要文件夹再套文件夹。** 文件多时多分几个一级语义目录，目录内直接放 md。
 - 所有 md（gen + ref）都要在 `brief.json` 的 `structure[]` 里登记，否则审批/注入都看不到它。
 
 ---
 
 ## 4. `brief.json` 规范
 
-记录身份 + 能力声明 + 结构（提供了哪些文件、生成型还是资料型、依赖顺序）。
+记录身份 + 能力声明 + **对宿主项目的全局符号假设** + 结构（哪些文件、gen/ref、依赖顺序）。
+下面就是范本 skill 的真实 `brief.json`：
 
 ```jsonc
 {
   "id": "qqbot-onebot",
   "name": "QQ 机器人交互 (OneBot)",
-  "author": "your-github-id",
+  "author": "Sudark (superwfox)",
   "version": "1.0.0",
-  "description": "让生成的插件通过 OneBot/WebSocket 对接 QQ 机器人：建连 + 收发群消息。",
-  "capability": "注入对接 QQ bot 的能力：WebSocket 长连接维护 + OneBot v11 收发报文模板。模型默认不熟这套协议。",
-  "tags": ["qqbot", "onebot", "websocket", "群消息"],  // 选择面板里的检索/归类标签（非自动命中）
+  "description": "让生成的插件通过 OneBot/WebSocket 对接 QQ 机器人：建连 + 收发群/私聊消息 + 消息解析分发。",
+  "capability": "注入对接 QQ bot 的能力：WebSocket 长连接维护与自动重连 + OneBot v11 收发报文模板 + 上行消息 JSON 解析分发与回复入口。模型默认不熟这套协议。",
+  "tags": ["qqbot", "onebot", "websocket", "群消息", "私聊", "消息解析"],  // 检索/归类标签（非自动命中）
   "mcVersions": [],                                     // 与 MC 版本无关时留空
   "coreTypes": ["PAPER", "SPIGOT"],
 
-  // ── 结构：本 skill 的所有文件 ──
+  // ── 假定宿主项目已存在的全局符号（由踏海内置的哪种 Gen 提供）──
+  // 踏海据此确保这些前置类被一并规划；缺了它们本 skill 接不上线。
+  "expectedGlobals": {
+    "Main.get()": "MainGen 提供的主类单例（getLogger / Bukkit 任务调度）",
+    "ConfigManager.GroupId": "ConfigClassGen 提供的目标 QQ 群号（String）",
+    "ConfigManager.WsUrl": "ConfigClassGen 提供的 OneBot ws 地址（String）"
+  },
+
+  // ── 结构：本 skill 的所有文件（gen/ref 由 file 自身 frontmatter 的 kind 决定，此处复述一致即可）──
   "structure": [
-    { "kind": "ref", "file": "protocol/websocket.md",    "role": "用哪个 ws 库 + 建连/心跳/重连骨架" },
-    { "kind": "ref", "file": "api/send-message.md",      "role": "发送群/私聊消息的 OneBot 报文模板" },
-    { "kind": "ref", "file": "api/receive-message.md",   "role": "接收消息事件的解析模板" },
+    { "kind": "ref", "file": "api/sendGroupMsg.md",   "role": "发送群消息的 OneBot 报文模板（send_group_msg）" },
+    { "kind": "ref", "file": "api/sendPrivateMsg.md", "role": "发送私聊消息的报文模板（send_private_msg）" },
+    { "kind": "ref", "file": "api/sendGroupAt.md",    "role": "群内 @ 某人的消息段（at）报文模板" },
 
-    { "kind": "gen", "file": "functions/BotConfig.md", "fileGen": "ConfigClassGen",
-      "role": "读取 ws 地址/端口/access_token 配置", "depends": [] },
+    { "kind": "gen", "file": "api/OneBotApi.md", "fileGen": "UtilGen",
+      "role": "对外发消息工具类：聚合 sendG/sendP/sendGroupAt，持 static client 字段",
+      "depends": ["api/sendGroupMsg.md", "api/sendPrivateMsg.md", "api/sendGroupAt.md"] },
 
-    { "kind": "gen", "file": "functions/BotConnection.md", "fileGen": "ManagerGen",
-      "role": "维护到 OneBot 的 ws 长连接，暴露发消息/注册回调",
-      "depends": ["functions/BotConfig.md", "protocol/websocket.md", "api/send-message.md", "api/receive-message.md"] }
+    { "kind": "gen", "file": "handler/privateMsgHandler.md", "fileGen": "UtilGen",
+      "role": "私聊指令路由 PrivateMsgHandler.handle(userQQ,msg)；回复走 OneBotApi.sendP",
+      "depends": ["api/OneBotApi.md"] },
+
+    { "kind": "gen", "file": "handler/groupMsgHandler.md", "fileGen": "UtilGen",
+      "role": "群消息指令路由 GroupMsgHandler.handle(userQQ,msg)；回复走 OneBotApi.sendG/sendGroupAt",
+      "depends": ["api/OneBotApi.md"] },
+
+    { "kind": "gen", "file": "handler/JsonParser.md", "fileGen": "UtilGen",
+      "role": "上行消息解析分发 OneBotHandler.MsgDivider：拆段 + 按 message_type 派发",
+      "depends": ["handler/privateMsgHandler.md", "handler/groupMsgHandler.md"] },
+
+    { "kind": "gen", "file": "protocol/websocket.md", "fileGen": "ManagerGen",
+      "role": "维护 ws 正向长连接 OneBotClient，自动重连，onMessage 交 OneBotHandler 解析",
+      "depends": ["handler/JsonParser.md", "api/OneBotApi.md"] }
   ]
 }
 ```
@@ -129,66 +150,88 @@ TAHAI-Skills/
 | `version` | ✓ | 语义化版本，便于审批/回滚 |
 | `tags` | ✓ | 选择面板里的检索/归类标签（**不是**自动命中关键词） |
 | `mcVersions` / `coreTypes` | — | 留空表示通用 |
+| `expectedGlobals` | 视情况 | 声明本 skill **假定宿主项目已存在**的全局符号（`Main.get()`、`ConfigManager.X`…）及由哪种 Gen 提供。踏海据此把前置类一并纳入规划 |
 | `structure[]` | ✓ | 每项一个文件：`kind`（`gen`/`ref`）+ `file` + `role`；`gen` 还需 `fileGen` 与 `depends` |
 
-- `kind:"gen"` 的项**必须**有 `fileGen`，会被 Planner 当作一个待生成文件；其字段刻意与踏海内部
+- `kind:"gen"` 的项**必须**有 `fileGen`，被 Planner 当作一个待生成文件；其字段刻意与踏海内部
   文件项（`path / role / generatorType / depends`）对齐，入库即可直接消费。
-- `kind:"ref"` 的项是参考资料，**不**生成文件；通过被 `gen` 项的 `depends` 引用来"喂给"对应生成步骤。
-- `depends` 填 `structure` 里其它项的 `file` 路径（可含 `ref`），表示"生成此文件时把这些资料一并注入"。
+- `kind:"ref"` 的项**不**单独生成文件；它是**可复用的代码片段/模板**，通过被某个 `gen` 项 `depends`
+  引用，在生成那一步被「拼进去」。范本里 `api/OneBotApi.md`（UtilGen）就 `depends` 三个 ref 方法片段，
+  把它们聚合成一个完整 `OneBotApi` 类——这是「ref = 方法片段，gen = 聚合落盘」的典型用法。
+- `depends` 填 `structure` 里其它项的 `file` 路径（可含 `ref`），既表达**注入关系**，也给出**生成拓扑顺序**。
 
 ---
 
 ## 5. 单个 md 文件规范
 
-每个文件 = **YAML frontmatter + 正文**。
+每个文件 = **YAML frontmatter + 正文**。范本里每个 md 都是这套写法，照抄即可。
 
 ### 5.1 frontmatter
 
-```markdown
+可用键（按是否出现取舍，不是每个都必填）：
+
+| 键 | 用于 | 说明 |
+|---|---|---|
+| `kind` | 全部 | `gen` / `ref`，与 `brief.json` 一致 |
+| `fileGen` | gen | 交给哪种生成器，见 §6；ref 省略 |
+| `pom: \|` | 可选 | **原样写 Maven `<dependency>` XML 块**（字面量，不是结构化列表）。Paper 自带的库（Gson 等）可注释说明可省 |
+| `depends` | 常用 | 本文件依赖的其它 md（相对路径 + 行内注释），生成时一并注入；与 brief 的 `depends` 对齐 |
+| `globals` | gen 常用 | 本文件**对外暴露**的全局符号（类名 / 静态方法 / 字段），供别处 `depends`/`uses` 引用 |
+| `uses` | 可选 | 反向/弱链接：谁会调用本类、本类又用到谁（说明数据流，不强制注入） |
+| `main_wiring: \|` | 需接线的类 | 给出在 `Main.onEnable` / `onDisable` 里实例化、启动、关闭的**确切片段**（Manager 类尤其需要） |
+| `role` / `notes` | ref 常用 | 一句职责 + 注意事项 |
+
+范本 `protocol/websocket.md` 的真实 frontmatter（注意 `pom` 是字面 XML 块）：
+
+```yaml
 ---
-kind: gen                      # gen=待生成文件 / ref=参考资料（与 brief 一致）
-fileGen: ManagerGen            # gen 必填：交给哪种生成器，见 §6；ref 省略
-deps:                          # 可选：本文件引入的额外 Maven 依赖（标准 <dependency> 四元素）
-  - groupId: org.java-websocket
-    artifactId: Java-WebSocket
-    version: "1.5.7"
-    scope: compile             # 纯 Java 第三方库 → compile + 需 shade 进 jar（见铁律 3b）
+kind: gen
+fileGen: ManagerGen
+
+pom: |
+  <dependency>
+      <groupId>org.java-websocket</groupId>
+      <artifactId>Java-WebSocket</artifactId>
+      <version>1.5.7</version>
+  </dependency>
+
+depends:
+  - ../handler/JsonParser.md     # 收到消息后调 OneBotHandler.MsgDivider 解析
+
+globals:                          # 本类对外暴露的全局符号
+  - Main.get().getOneBotClient()  # ManagerGen 约定：Main 持有 OneBotClient 实例
+  - OneBotApi.client              # onOpen 时回写：OneBotApi.client = this
+
+uses:
+  - ../api/OneBotApi.md           # 发消息侧通过 OneBotApi.client 复用本连接
+
+main_wiring: |
+  // Main.onEnable 末尾：new OneBotClient(URI.create(ConfigManager.WsUrl)).connect();
+  // Main.onDisable：    if (oneBotClient != null) oneBotClient.close();
 ---
 ```
 
-- `deps` 每项就是一段标准 Maven 依赖坐标——**groupId / artifactId / version / scope 四行**，
-  踏海生成 `pom.xml` 时统一收集。
-- `paper-api` / `spigot-api` **不用写**，踏海按 `coreType`+`mcVersion` 自动注入。这里只声明额外引入的。
-- `deps` 可出现在任意 md（资料型 `websocket.md` 声明 ws 库最合适）。
+- `pom` 里只写**额外引入**的库；`paper-api` / `spigot-api` 由踏海按 `coreType`+`mcVersion` 自动注入，**不要写**。
+- 纯 Java 第三方库（如 `Java-WebSocket`）走 `compile` + maven-shade 打进 jar（见铁律 3b）；选轻量、无传递依赖的。
+- `globals` / `uses` / `expectedGlobals` 共同构成 skill 内外的**符号契约**：谁暴露、谁引用、谁是宿主前置，
+  让低端模型生成时不必猜类名/方法名，照符号抄即可。
 
 ### 5.2 正文
 
-**能力型 skill 鼓励给大量可照抄代码**（这与早期"只写要点"的思路相反——能力扩展靠样板）。
-但务必业务中立。例如 `protocol/websocket.md`：
+**能力型 skill 鼓励给大量可照抄代码**（这与早期"只写要点"的思路相反——能力扩展靠样板），但务必业务中立。
+范本里每个正文都按同一骨架写，建议沿用：
 
-````markdown
-## 用哪个库
-- WebSocket 客户端用 `org.java-websocket:Java-WebSocket`（轻量、无传递依赖，适合 shade）。
-- 它是 compile 依赖，pom 必须配 maven-shade-plugin 把它打进最终 jar。
+1. `# 类名 — 一句话职责（GenType）` 标题；
+2. 一两段散文：本类在数据流里的位置、谁调它、它调谁；
+3. 一个 `> **GenType 约束** / **职责边界** / **禁忌**` 引用块，把红线写死；
+4. 一段 ```java``` 代码：
+   - **ref** 给**完整可抄的方法体**（如 `sendGroupMsg.md` 的 `send_group_msg` 报文拼装）；
+   - **gen 的入口类**（指令路由这类）给 **`// TODO` + 注释掉的示例骨架**，把"做什么"留给用户当次需求，
+     保持业务中立（见范本 `handler/groupMsgHandler.md`：只给 `switch(cmd)` 注释样例，不写死任何玩法）。
 
-## 建立连接（可直接照抄骨架）
-```java
-client = new WebSocketClient(URI.create(wsUrl /* 来自配置，勿硬编码 */)) {
-    @Override public void onOpen(ServerHandshake h) { /* 标记已连接 */ }
-    @Override public void onMessage(String msg)     { /* 交给 OneBot 事件解析 */ }
-    @Override public void onClose(int c, String r, boolean remote) { /* 触发重连 */ }
-    @Override public void onError(Exception ex)      { /* 记录日志 */ }
-};
-client.connect();
-```
-
-## 必须显式提问 / 暴露配置（勿写死）
-- ws 地址、端口、access_token：部署相关，必须放进 config.yml 由用户填写。
-- 心跳/重连间隔可给默认值（30s/5s），但也建议入配。
-
-## 业务中立
-- 本 skill 只保证"连得上、收得到、发得出"；收到消息后做什么由用户当次需求决定，不在此写死。
-````
+> 红线示例（取自范本）：UtilGen 全 `public static` 无实例字段；指令 Handler **不**自己 `new WebSocketClient`、
+> **不**自己校验群号（上游 `OneBotHandler` 已过滤）；阻塞/耗时操作丢 `BukkitRunnable.runTaskAsynchronously(Main.get())`；
+> 发往 QQ 端先 `stripColor` 去掉 `§x` 颜色码。**这些"该问就问、勿硬编码"的边界全部写进引用块，别埋在代码注释里。**
 
 ---
 
@@ -219,7 +262,7 @@ client.connect();
 3. **依赖分两类，分别处理：**
    - **3a. Bukkit 插件依赖** — 仅限 Vault / PlaceholderAPI / WorldGuard 这类，且**缺失要降级**
      （`plugin.yml` 用 softdepend，运行时判空），不得硬依赖导致加载失败。
-   - **3b. 纯 Java 第三方库**（如 `Java-WebSocket`、JSON 库）— **允许引入**，但 `deps` 给**确定坐标**、
+   - **3b. 纯 Java 第三方库**（如 `Java-WebSocket`、JSON 库）— **允许引入**，但 `pom` 给**确定坐标**、
      `scope: compile` + 配 **maven-shade** 打进 jar；优先选**轻量、无传递依赖**的库。
 4. **不强转插件主类**：取实例一律 `Bukkit.getPluginManager().getPlugin("<projectName>")`（`Plugin` 接口），
    禁止 `(MainClass) getPlugin(...)` / `MainClass.getInstance()`。
@@ -274,5 +317,5 @@ client.connect();
 
 ## 附：最快上手
 
-复制 `qqbot-onebot/`（§3 结构 + §4 `brief.json` + §5.2 `websocket.md`）整套，
+复制范本 skill `qqbot-onebot/`（§3 结构 + §4 `brief.json` + §5 的 frontmatter & 正文骨架）整套，
 按你的能力场景替换库坐标与模板即可——它就是一个合规的能力型 skill 范本。
