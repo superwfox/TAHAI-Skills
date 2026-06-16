@@ -1,0 +1,48 @@
+{
+  "id": "qqbot-onebot",
+  "name": "QQ 机器人交互 (OneBot)",
+  "author": "Sudark (superwfox)",
+  "version": "1.0.0",
+  "description": "让生成的插件通过 OneBot/WebSocket 对接 QQ 机器人：建连 + 收发群/私聊消息 + 消息解析分发。",
+  "capability": "注入对接 QQ bot 的能力：WebSocket 长连接维护与自动重连 + OneBot v11 收发报文模板 + 上行消息 JSON 解析分发与回复入口。模型默认不熟这套协议。",
+  "tags": ["qqbot", "onebot", "websocket", "群消息", "私聊", "消息解析"],
+  "mcVersions": [],
+  "coreTypes": ["PAPER", "SPIGOT"],
+
+  "expectedGlobals": {
+    "Main.get()": "MainGen 提供的主类单例（用于 getLogger / Bukkit 任务调度）",
+    "ConfigManager.GroupId": "ConfigClassGen 提供的目标 QQ 群号（String）",
+    "ConfigManager.WsUrl": "ConfigClassGen 提供的 OneBot 反向/正向 ws 地址（String）"
+  },
+
+  "structure": [
+    { "kind": "ref", "file": "api/sendGroupMsg.md",
+      "role": "发送群消息的 OneBot 报文模板（send_group_msg）" },
+
+    { "kind": "ref", "file": "api/sendPrivateMsg.md",
+      "role": "发送私聊消息的 OneBot 报文模板（send_private_msg）" },
+
+    { "kind": "ref", "file": "api/sendGroupAt.md",
+      "role": "群内 @ 某人的消息段（at）报文模板，复用 send_group_msg" },
+
+    { "kind": "gen", "file": "api/OneBotApi.md", "fileGen": "UtilGen",
+      "role": "对外发消息的静态工具类 OneBotApi：聚合 sendG / sendP / sendGroupAt，持 static client 字段",
+      "depends": ["api/sendGroupMsg.md", "api/sendPrivateMsg.md", "api/sendGroupAt.md"] },
+
+    { "kind": "gen", "file": "handler/privateMsgHandler.md", "fileGen": "UtilGen",
+      "role": "私聊指令路由 PrivateMsgHandler.handle(userQQ, msg)；回复走 OneBotApi.sendP",
+      "depends": ["api/OneBotApi.md"] },
+
+    { "kind": "gen", "file": "handler/groupMsgHandler.md", "fileGen": "UtilGen",
+      "role": "群消息指令路由 GroupMsgHandler.handle(userQQ, msg)；回复走 OneBotApi.sendG/sendGroupAt",
+      "depends": ["api/OneBotApi.md"] },
+
+    { "kind": "gen", "file": "handler/JsonParser.md", "fileGen": "UtilGen",
+      "role": "上行消息解析分发 OneBotHandler.MsgDivider：拆段格式化 + 按 message_type 派发到两个 Handler",
+      "depends": ["handler/privateMsgHandler.md", "handler/groupMsgHandler.md"] },
+
+    { "kind": "gen", "file": "protocol/websocket.md", "fileGen": "ManagerGen",
+      "role": "维护到 OneBot 的 ws 正向长连接 OneBotClient，自动重连，onOpen 回写 OneBotApi.client，onMessage 交 OneBotHandler 解析",
+      "depends": ["handler/JsonParser.md", "api/OneBotApi.md"] }
+  ]
+}
