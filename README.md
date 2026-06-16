@@ -65,6 +65,8 @@
 ```
 qqbot-onebot/
 ├─ brief.json
+├─ usage.md                  ← 可选：整体用法教学（注入 Planner + 每步生成，见 §5.3）
+├─ deny.md                   ← 可选：禁止事项（每条作「⛔ 绝对禁止」注入，见 §5.3）
 ├─ protocol/
 │  └─ websocket.md            ← gen(ManagerGen)：OneBotClient 正向长连接 + 自动重连
 ├─ api/
@@ -232,6 +234,15 @@ main_wiring: |
 > 红线示例（取自范本）：UtilGen 全 `public static` 无实例字段；指令 Handler **不**自己 `new WebSocketClient`、
 > **不**自己校验群号（上游 `OneBotHandler` 已过滤）；阻塞/耗时操作丢 `BukkitRunnable.runTaskAsynchronously(Main.get())`；
 > 发往 QQ 端先 `stripColor` 去掉 `§x` 颜色码。**这些"该问就问、勿硬编码"的边界全部写进引用块，别埋在代码注释里。**
+
+### 5.3 教学与禁忌（`usage.md` / `deny.md`，可选但强烈推荐）
+
+除 `structure` 里的生成文件外，skill 根目录可放两个**面向模型的引导文件**（不在 `structure` 登记，踏海自动读取并注入）：
+
+- **`usage.md`（用法教学）** — 这套能力整体怎么用：数据流、Main 接线、必做项、该问就问的部署参数。给模型一个全局视角，避免它只看零散文件各写各的、拼不到一起。
+- **`deny.md`（禁忌清单）** — 什么**绝对不准做**。这是 skill 缺了最容易翻车的地方：低端模型常自作主张（给 OneBot 自己写心跳、另起一套连接、硬编码地址……）。`deny.md` 里每一条都会作为「⛔ 绝对禁止」醒目注入到 Planner 与**每一步**文件生成，强制模型不踩坑。
+
+> 经验：能力越「协议化 / 有库托管」，越需要 `deny.md` 圈出边界。例如 qqbot 的 `deny.md` 第一条就是「不要自己实现心跳——心跳由 OneBot 协议端维护」。
 
 ---
 
